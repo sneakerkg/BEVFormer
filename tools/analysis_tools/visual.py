@@ -3,7 +3,9 @@
 #  Modified by Zhiqi Li
 # ---------------------------------------------
 
+import os
 import mmcv
+import subprocess
 from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from nuscenes.utils.geometry_utils import view_points, box_in_image, BoxVisibility, transform_matrix
@@ -25,8 +27,6 @@ from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
 from nuscenes.eval.detection.data_classes import DetectionBox
 from nuscenes.eval.detection.utils import category_to_detection_name
 from nuscenes.eval.detection.render import visualize_sample
-
-
 
 
 cams = ['CAM_FRONT',
@@ -348,6 +348,93 @@ def get_color(category_name: str):
     return [0, 0, 0]
 
 
+def images_to_video(image_paths, output_video, framerate=1):
+    """
+    Convert a list of images to a video.
+
+    Args:
+    - image_paths (list): A list of paths to the input images.
+    - output_video (str): The path to the output video file.
+    - framerate (int): The number of frames (images) per second in the output video.
+    """
+    # Create a temporary file listing all images
+    with open("temp_list.txt", "w") as file:
+        for image_path in image_paths:
+            file.write(f"file '{os.path.abspath(image_path)}'\n")
+            file.write(f"duration {1/framerate}\n")
+    
+        # Ensure the last image is shown for an additional frame duration
+        file.write(f"file '{os.path.abspath(image_paths[-1])}'\n")
+
+    # read the first image and get the image size
+    img = Image.open(image_paths[0])
+    width, height = img.size
+    # trunk the width and height to be even
+    width = width - width % 2
+    height = height - height % 2
+
+    # Command to run FFmpeg: convert list of images to video
+    cmd = [
+        'ffmpeg',
+        '-f', 'concat',  # File format
+        '-safe', '0',  # Allow unsafe file paths
+        '-i', 'temp_list.txt',  # Input file list
+        '-vsync', 'vfr',  # Variable Frame Rate (VFR) to handle different image durations
+        '-pix_fmt', 'yuv420p',  # Pixel format
+        '-vf', 'scale={}:{}'.format(width, height),  # Scale the video to the correct size
+        output_video
+    ]
+
+    # Execute the command
+    subprocess.run(cmd)
+
+    # Remove the temporary file
+    os.remove("temp_list.txt")
+
+
+def get_complete_scene_samples(selected_sample_token):
+    scene_token = nusc.get('sample', selected_sample_token)['scene_token']
+    # init a python queue
+    queue = []
+    # put the selected sample token into the queue
+    queue.append(selected_sample_token)
+    # move forward until no next sample
+    while True:
+        # get the next sample token
+        next_sample_token = nusc.get('sample', selected_sample_token)['next']
+        # if there is no next sample, break the loop
+        if next_sample_token == '':
+            break
+        # put the next sample token into the queue
+        queue.append(next_sample_token)
+        # update the selected sample token
+        selected_sample_token = next_sample_token
+    # move backward until no previous sample
+    while True:
+        # get the previous sample token
+        prev_sample_token = nusc.get('sample', queue[0])['prev']
+        # if there is no previous sample, break the loop
+        if prev_sample_token == '':
+            break
+        # put the previous sample token into the queue
+        queue.insert(0, prev_sample_token)
+
+    return queue, scene_token
+
+def render_scene_as_video(scene_sample_list, scene_token):
+    bev_img_list = []
+    camera_img_list = []
+
+    for sample_token in scene_sample_list:
+        #render_sample_data(sample_token, pred_data=bevformer_results, out_path="./vis_res/"+sample_token)
+        bev_img_list.append(f"./vis_res/{sample_token}_bev.png")
+        camera_img_list.append(f"./vis_res/{sample_token}_camera.png")
+    
+    #images_to_video(bev_img_list, './vis_res/scene_' + scene_token + '_bev.mp4')
+    print (camera_img_list)
+    images_to_video(camera_img_list, './vis_res/scene_' + scene_token + '_camera.mp4')
+        
+
 def render_sample_data(
         sample_toekn: str,
         with_anns: bool = True,
@@ -469,9 +556,24 @@ def render_sample_data(
     plt.close()
 
 if __name__ == '__main__':
+    '''
     nusc = NuScenes(version='v1.0-trainval', dataroot='./data/nuscenes', verbose=True)
     # render_annotation('7603b030b42a4b1caa8c443ccc1a7d52')
-    bevformer_results = mmcv.load('test/bevformer_base/Thu_Jun__9_16_22_37_2022/pts_bbox/results_nusc.json')
+    bevformer_results = mmcv.load('test/bevformer_base/Mon_Feb_26_08_49_38_2024/pts_bbox/results_nusc.json')
     sample_token_list = list(bevformer_results['results'].keys())
+    '''
+
+    '''
     for id in range(0, 10):
-        render_sample_data(sample_token_list[id], pred_data=bevformer_results, out_path=sample_token_list[id])
+        render_sample_data(sample_token_list[id], pred_data=bevformer_results, out_path="./vis_res/"+sample_token_list[id])
+    '''
+    
+    
+    '''
+    scene_sample_list, scene_token = get_complete_scene_samples(sample_token_list[0])
+    print (scene_sample_list, scene_token)
+    '''
+    scene_sample_list = ['30e55a3ec6184d8cb1944b39ba19d622', 'cc18fde20db74d30825b0b60ec511b7b', '08e76760a8c64a92a86686baf68f6aff', '2140329a6990437aa46b83c30f49cf49', '01a7d01c014f406f87b8fe11976c3d0a', 'a2fada921a7d4141877f4a51328a21af', 'b06a815164ec466f9fdb525522bb3799', '5bd85334fdf94fb99c7eaa45d5feba0d', '61f89208546a4045af336659ebe8db05', '3bf56ebb22b741339967a95a9fbe2081', '296fcfbf2e29489699f1cb5631f38ff5', 'f7d75d25c86941f3aecfed9efea1a3e3', '1dfecb8189f54b999f4e47ddaa677fd0', '830ba619959e4802a955ac40c5ee9453', 'dc2b67cdadca4deb89d7d684f2894292', 'e1dffaba060040cfab07dec04790fbfa', 'be28204a6a5a42ed9939d95ec3f22f5f', '77c3d98fab3e4d3ea65747caaa74d605', '5224809ffef94a6e83454ad3930d3533', '3c18f85f037744b6ae4c8a6f8dc578c2', '08d95280dd2f42d98a4a6e33dff8e815', 'f38aedc5545643d5be815165c6574186', '56f30b8972084492bbe742d423fc00ff', 'd536032be01140afb6faa25b33de5487', '4094ae4656fb4b8fb1906192b24a34cb', 'df25b3ecaf994001ab5d5b92b9de89fd', '27f42a55215f4223a01afa79fcda72e6', 'f3c9f3e85f384381bfced8c2a863376f', '9c0558316d134feb8835997f8df4444d', '755ef1d006e94b2a87523000781a7a99', '4f9ad42bb4a24970b770ba0a87baf47a', '5ea654e6b56a457093b835dbf8c886e4', '8d4ef2af6b394e5e8ccfd6e2e90156dc', '91cc3d4e0df748fd8f7b2955fa4b549c', 'adcff599db1e48f19fd5c0fc827c8d79', 'ec78e68b1637464da5305a9cbed214c4', '9288108d128d4579a54fb135d08b46ad', 'efce90566e4b4b39a3869c023d7c6f19', 'e59fefa1fc19406782779392dff95366']
+    scene_token = 'c3ab8ee2c1a54068a72d7eb4cf22e43d'
+
+    render_scene_as_video(scene_sample_list, scene_token)
